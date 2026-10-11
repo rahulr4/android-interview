@@ -246,6 +246,7 @@
         <div class="toolbar">
           <label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">Search questions</span><input id="searchInput" type="search" placeholder="Search questions" autocomplete="off"></label>
           <button class="secondary" id="exportHtml" type="button">Export HTML</button>
+          <button class="secondary" id="loadFileAnswers" type="button">Load file answers</button>
         </div>
         <div class="list-heading"><span id="resultCount">Questions</span><span>SELECT TO REVIEW</span></div>
         <section class="question-list" id="questionList" aria-label="Interview questions and selected answer"></section>
@@ -1240,6 +1241,17 @@
     }
 
     const exportSourceHtml = "<!doctype html>\n" + document.documentElement.outerHTML;
+    document.querySelector("#loadFileAnswers").addEventListener("click", () => {
+      if (!confirm("Replace this browser's questions with the answers in this HTML file? Export HTML first to keep browser-only edits.")) return;
+      questions = (repositoryQuestions ?? starterQuestions)
+        .filter(item => !removedQuestionIds.has(item.id))
+        .map(item => ({ ...item, tags: [...(item.tags || [])] }));
+      selectedId = questions[0]?.id ?? null;
+      activeTag = "";
+      searchInput.value = "";
+      persist();
+      render();
+    });
     document.querySelector("#exportHtml").addEventListener("click", () => {
       const snapshot = JSON.stringify(questions).replace(/</g, "\\u003c");
       const html = exportSourceHtml.replace(/^    const repositoryQuestions = .*;$/m,
