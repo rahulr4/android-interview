@@ -245,6 +245,7 @@
         <p class="subtitle" id="librarySummary">Keep your answers clear, concise, and ready to say out loud.</p>
         <div class="toolbar">
           <label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only">Search questions</span><input id="searchInput" type="search" placeholder="Search questions" autocomplete="off"></label>
+          <button class="secondary" id="exportHtml" type="button">Export HTML</button>
         </div>
         <div class="list-heading"><span id="resultCount">Questions</span><span>SELECT TO REVIEW</span></div>
         <section class="question-list" id="questionList" aria-label="Interview questions and selected answer"></section>
@@ -257,12 +258,13 @@
 
   <script>
     const storageKey = "android-interview-prep-questions-v1";
+    const repositoryQuestions = null;
     const starterQuestions = [{
       id: "coroutine-context-state-machine",
       section: "Coroutines",
       difficulty: "Standard",
       question: "What is Coroutine Context and State Machine? How do coroutines work internally?",
-      answer: "**CoroutineContext is the configuration of a coroutine.** It tells the coroutine how to run and manages its lifecycle. It can also contain a name or an exception handler.\n\nFor example, inside a ViewModel:\n```kotlin\nviewModelScope.launch(Dispatchers.IO) {\n    fetchUser()\n}\n```\n\nHere:\n- `Dispatchers.IO` selects the dispatcher used to run the coroutine.\n- `Job` manages lifecycle and cancellation. `launch` creates a child Job, cancelled when `viewModelScope` is cancelled.\n- `CoroutineName` and `CoroutineExceptionHandler` are other possible context elements.\n\nNow suppose we have:\n```kotlin\nsuspend fun fetchUser() {\n    val user = api.getUser()      // suspension point\n    val posts = api.getPosts()    // suspension point\n    showData(user, posts)\n}\n```\n\nInternally, Kotlin converts this into a state machine:\n```text\nState 0: call getUser()\n         suspend\n\nState 1: user received; call getPosts()\n         suspend\n\nState 2: posts received; showData()\n```\n\nWhen `getUser()` is waiting for the network response, **the thread is not blocked**. The coroutine suspends, and Kotlin remembers:\n> I stopped after `getUser()`. When the result comes back, continue from here.\n\nA **Continuation** stores the current state and local values needed to resume. When the network response arrives, it resumes with the result or an exception.\n\n:::summary\n**Easy way to remember:**\n- **CoroutineContext** = how and where the coroutine runs.\n- **Continuation** = remembers where to resume.\n- **State Machine** = represents the different stages of the suspend function.\n- **Coroutine** = suspends instead of blocking the thread.\n:::\n\n**Extra interview point:** `suspend` alone does not switch threads. The dispatcher controls where coroutine code runs; use `withContext` when you need to change dispatchers."
+      answer: "**CoroutineContext is the configuration of a coroutine.** It tells the coroutine how to run and manages its lifecycle. It can also contain a name or an exception handler.\n\nCommon elements are:\n\n- `Job` — controls coroutine lifecycle and cancellation.\n- `CoroutineDispatcher` — determines where coroutine execution happens.\n- `CoroutineName` — gives the coroutine a name, useful for debugging.\n- `CoroutineExceptionHandler` — handles uncaught exceptions.\n\n### 2. What is a Continuation?\nA `Continuation` represents **where the coroutine should continue execution after suspension**.\n\nWhen a coroutine suspends, Kotlin needs to remember:\n\n- where execution stopped\n- local variables\n- what code should execute next\n- the coroutine's context\nThat information is represented through a **Continuation**.\n\n### 3. What is a Coroutine State Machine?\nA `suspend` function is transformed by the Kotlin compiler into a **state machine**.\n\nFor example:\n\n```\nsuspend fun loadData() {\n    val user = getUser()\n    val posts = getPosts(user)\n    show(posts)\n}\n```\n\nConceptually:\n\n```\nSTATE 0\n  ↓\ngetUser()\n  ↓\nSTATE 1\n  ↓\ngetPosts()\n  ↓\nSTATE 2\n  ↓\nshow()\n  ↓\nCOMPLETED\n```\n\nEach suspension point becomes a state.\n\n### 4. How does suspension work internally?\nWhen the coroutine reaches a suspension point:\n\n```\nExecute\n   ↓\nSuspension point\n   ↓\nSave state in Continuation\n   ↓\nReturn COROUTINE_SUSPENDED\n   ↓\nThread is free\n```\n\nThe important point is:\n\n> **The coroutine suspends, not the thread.**\nWhen the asynchronous operation finishes:\n\n```\nOperation completes\n   ↓\nContinuation.resume()\n   ↓\nDispatcher schedules execution\n   ↓\nState machine resumes\n   ↓\nContinue from where it stopped\n```\n\nFor example, inside a ViewModel:\n```kotlin\nviewModelScope.launch(Dispatchers.IO) {\n    fetchUser()\n}\n```\n\nHere:\n- `Dispatchers.IO` selects the dispatcher used to run the coroutine.\n- `Job` manages lifecycle and cancellation. `launch` creates a child Job, cancelled when `viewModelScope` is cancelled.\n- `CoroutineName` and `CoroutineExceptionHandler` are other possible context elements.\n\nNow suppose we have:\n```kotlin\nsuspend fun fetchUser() {\n    val user = api.getUser()      // suspension point\n    val posts = api.getPosts()    // suspension point\n    showData(user, posts)\n}\n```\n\nInternally, Kotlin converts this into a state machine:\n```text\nState 0: call getUser()\n         suspend\n\nState 1: user received; call getPosts()\n         suspend\n\nState 2: posts received; showData()\n```\n\nWhen `getUser()` is waiting for the network response, **the thread is not blocked**. The coroutine suspends, and Kotlin remembers:\n> I stopped after `getUser()`. When the result comes back, continue from here.\n\nA **Continuation** stores the current state and local values needed to resume. When the network response arrives, it resumes with the result or an exception.\n\n:::summary\n**Easy way to remember:**\n- **CoroutineContext** = how and where the coroutine runs.\n- **Continuation** = remembers where to resume.\n- **State Machine** = represents the different stages of the suspend function.\n- **Coroutine** = suspends instead of blocking the thread.\n:::\n\n**Extra interview point:** `suspend` alone does not switch threads. The dispatcher controls where coroutine code runs; use `withContext` when you need to change dispatchers."
     }, {
       id: "finite-state-machine-coroutines",
       section: "Coroutines",
@@ -289,15 +291,16 @@
     const searchInput = document.querySelector("#searchInput");
 
     function loadQuestions() {
+      const defaults = repositoryQuestions ?? starterQuestions;
       try {
         const saved = localStorage.getItem(storageKey);
-        if (!saved) return starterQuestions;
+        if (!saved) return defaults;
         const existing = JSON.parse(saved);
-        if (!Array.isArray(existing)) return starterQuestions;
+        if (!Array.isArray(existing)) return defaults;
         const existingIds = new Set(existing.map(item => item.id));
-        return [...existing, ...starterQuestions.filter(item => !existingIds.has(item.id))];
+        return [...existing, ...defaults.filter(item => !existingIds.has(item.id))];
       } catch {
-        return starterQuestions;
+        return defaults;
       }
     }
 
@@ -358,8 +361,8 @@
       section: "Multi-Module",
       difficulty: "Standard",
       tags: ["Architecture", "Dependency Injection"],
-      question: "How do you access one feature module from another feature module?",
-      answer: "Ideally, **feature modules should not directly depend on each other**.\n\nFor example:\n```text\nfeature-home\nfeature-profile\n```\n\nAvoid a direct dependency:\n```text\nfeature-home → feature-profile\n```\n\nInstead, they can communicate through a **shared contract/interface** or the **app/navigation layer**. For example, Home wants to open Profile:\n```kotlin\ninterface ProfileNavigator {\n    fun openProfile(userId: String)\n}\n```\n\n`feature-home` only knows this interface:\n```kotlin\nclass HomeViewModel(\n    private val profileNavigator: ProfileNavigator\n) {\n    fun onProfileClick(userId: String) {\n        profileNavigator.openProfile(userId)\n    }\n}\n```\n\nThe app/navigation module provides the actual implementation and opens the Profile feature:\n```text\nFeature Home\n     ↓\nInterface / Contract\n     ↓\nApp / Navigation\n     ↓\nFeature Profile\n```\n\nFor sharing data, both features can depend on a common `domain` or `core` module:\n```text\nFeature Home ──→ Domain/Core ←── Feature Profile\n```\n\n:::summary\n**Easy interview answer:**\n> Feature modules should ideally be independent and shouldn't directly depend on each other. For navigation, use an interface or navigation contract implemented by the app/navigation layer. For shared data or business logic, both features depend on a common core/domain module.\n:::\n\nThis avoids **circular dependencies** and keeps features loosely coupled.\n\nThe main benefit is **loose coupling**. If `feature-home` directly depends on `feature-profile`, changes in Profile can start affecting Home.\n\nWith contracts/interfaces:\n```text\nHome → Contract ← Profile\n```\n\nBenefits:\n- **Independent features** — Profile can change internally without affecting Home.\n- **No circular dependencies** — avoids Home → Profile → Home.\n- **Better testability** — Home can mock `ProfileNavigator`.\n- **Faster builds** — changing one feature is less likely to rebuild unrelated modules.\n- **Easier team development** — teams can work on features independently.\n- **Reusable features** — a feature is not tightly connected to another feature.\n\n### Easy interview answer\n> **The main benefit is loose coupling. Each feature can be developed, tested, and changed independently. It also prevents circular dependencies and can improve build times in large projects.**"
+      question: "In a multi-module project, how do two feature modules interact with each other?",
+      answer: "Ideally, **feature modules should not directly depend on each other**.\n\nFor example:\n```text\nfeature-home\nfeature-profile\n```\n\nAvoid a direct dependency:\n```text\nfeature-home → feature-profile\n```\n\nInstead, they can communicate through a **shared contract/interface** or the **app/navigation layer**. For example, Home wants to open Profile:\n```kotlin\ninterface ProfileNavigator {\n    fun openProfile(userId: String)\n}\n```\n\n`feature-home` only knows this interface:\n```kotlin\nclass HomeViewModel(\n    private val profileNavigator: ProfileNavigator\n) {\n    fun onProfileClick(userId: String) {\n        profileNavigator.openProfile(userId)\n    }\n}\n```\n\nThe app/navigation module provides the actual implementation and opens the Profile feature:\n```text\nFeature Home\n     ↓\nInterface / Contract\n     ↓\nApp / Navigation\n     ↓\nFeature Profile\n```\n\nFor sharing data, both features can depend on a common `domain` or `core` module:\n```text\nFeature Home ──→ Domain/Core ←── Feature Profile\n```\n\n:::summary\n**Easy interview answer:**\n> Feature modules should ideally be independent and shouldn't directly depend on each other. For navigation, use an interface or navigation contract implemented by the app/navigation layer. For shared data or business logic, both features depend on a common core/domain module.\n:::\n\nThis avoids **circular dependencies** and keeps features loosely coupled."
     });
 
     starterQuestions.push({
@@ -1000,9 +1003,11 @@
     });
 
     const loadedQuestionIds = new Set(questions.map(item => item.id));
-    questions.push(...starterQuestions.filter(item =>
-      !loadedQuestionIds.has(item.id) && !removedQuestionIds.has(item.id)
-    ));
+    if (!repositoryQuestions) {
+      questions.push(...starterQuestions.filter(item =>
+        !loadedQuestionIds.has(item.id) && !removedQuestionIds.has(item.id)
+      ));
+    }
     const starterQuestionById = new Map(starterQuestions.map(item => [item.id, item]));
     questions = questions.map(item => {
       const starter = starterQuestionById.get(item.id);
@@ -1010,9 +1015,6 @@
         ? { ...item, tags: [...new Set([...(item.tags || []), ...starter.tags])] }
         : item;
     });
-    questions = questions.map(item => item.id === startActivityQuestionId && startActivityQuestion
-      ? { ...item, answer: startActivityQuestion.answer }
-      : item);
     persist();
 
     function persist() {
@@ -1236,6 +1238,19 @@
       renderList();
       renderDetail();
     }
+
+    const exportSourceHtml = "<!doctype html>\n" + document.documentElement.outerHTML;
+    document.querySelector("#exportHtml").addEventListener("click", () => {
+      const snapshot = JSON.stringify(questions).replace(/</g, "\\u003c");
+      const html = exportSourceHtml.replace(/^    const repositoryQuestions = .*;$/m,
+        () => `    const repositoryQuestions = ${snapshot};`);
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      const download = document.createElement("a");
+      download.href = url;
+      download.download = "index.html";
+      download.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
 
     searchInput.addEventListener("input", render);
     render();
